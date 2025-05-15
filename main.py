@@ -607,5 +607,188 @@ async def get_related_tables(table_name: str, ctx: Context) -> str:
     except Exception as e:
         return f"Error getting related tables: {str(e)}"
 
+@mcp.tool()
+async def update_rows(table_name: str, set_values: str, condition: str, ctx: Context) -> str:
+    """
+    Update rows in a table that match the specified condition.
+    This tool allows you to modify data in a table based on a WHERE clause condition.
+    Be careful when updating data, especially without a specific condition.
+    Args:
+        table_name: The name of the table to update rows in (case-insensitive)
+        set_values: The SET clause that specifies the columns to update and their new values.
+                   For example: "status = 'COMPLETED', updated_at = SYSDATE"
+        condition: The WHERE clause condition that determines which rows to update.
+                  For example: "id = 1" or "status = 'PENDING' AND created_date < SYSDATE - 30"
+                  The condition should be a valid SQL WHERE clause without the WHERE keyword.
+    Returns:
+        A message indicating the number of rows updated or an error message if the operation failed.
+    """
+    db_context: DatabaseContext = ctx.request_context.lifespan_context
+
+    # First verify the table exists
+    table_info = await db_context.get_schema_info(table_name)
+    if not table_info:
+        return f"Table '{table_name}' not found in the schema."
+
+    try:
+        # Get a connection and execute the update
+        conn = await db_context.db_connector.get_connection()
+        try:
+            cursor = conn.cursor()
+
+            # Construct and execute the update query
+            schema = await db_context.db_connector._get_effective_schema(conn)
+            update_query = f"UPDATE {schema}.{table_name} SET {set_values} WHERE {condition}"
+
+            # Execute the update
+            await db_context.db_connector._execute_cursor_no_fetch(cursor, update_query)
+
+            # Get the number of rows affected
+            rows_updated = cursor.rowcount
+
+            # Commit the transaction
+            await db_context.db_connector._commit(conn)
+
+            return f"Successfully updated {rows_updated} row(s) in {table_name}."
+
+        except oracledb.Error as e:
+            # Rollback on error
+            if USE_THICK_MODE:
+                conn.rollback()
+            else:
+                await conn.rollback()
+            return f"Error updating rows: {str(e)}"
+        finally:
+            await db_context.db_connector._close_connection(conn)
+
+    except Exception as e:
+        return f"Error executing update operation: {str(e)}"
+
+@mcp.tool()
+async def get_rows(table_name: str, condition: str, ctx: Context, limit: int = 5) -> str:
+    """
+    Get rows from a table that match the specified condition.
+    This tool allows you to query data from a table based on a WHERE clause condition.
+    Results are returned as formatted rows with column names and values.
+    Args:
+        table_name: The name of the table to query (case-insensitive)
+        condition: The WHERE clause condition that determines which rows to retrieve.
+                  For example: "id = 1" or "status = 'ACTIVE' AND created_date > SYSDATE - 30"
+                  The condition should be a valid SQL WHERE clause without the WHERE keyword.
+        limit: Maximum number of rows to return (default 5, set to 0 for no limit)
+    Returns:
+        A formatted string containing the matching rows with column names and values,
+        or an error message if the operation failed.
+    """
+    db_context: DatabaseContext = ctx.request_context.lifespan_context
+
+    try:
+        # First verify the table exists
+        table_info = await db_context.get_schema_info(table_name)
+        if not table_info:
+            return f"Table '{table_name}' not found in the schema."
+
+        try:
+            rows = await db_context.get_rows(table_name, condition, limit)
+
+            if not rows:
+                return f"No rows found in {table_name} matching condition: {condition}"
+
+            # Format the results
+            result_lines = [f"Query results from {table_name} (matching condition: {condition}):"]
+
+            # Calculate maximum column name width for formatting
+            max_col_width = max(len(col) for row in rows for col in row.keys()) + 2
+            max_val_width = 50  # Limit the maximum width for values
+
+            # Row separator
+            row_separator = "=" * (max_col_width + max_val_width + 5)
+
+            # Process each row
+            for row_num, row in enumerate(rows, 1):
+                result_lines.append(f"\n{row_separator}")
+                result_lines.append(f"Row {row_num}:")
+                result_lines.append(f"{'-' * (max_col_width + max_val_width + 5)}")
+
+                # Create a key-value table for each row
+                for col, val in row.items():
+                    val_str = str(val) if val is not None else "NULL"
+                    # Truncate very long values
+                    if len(val_str) > max_val_width:
+                        val_str = val_str[:max_val_width-3] + "..."
+                    # Format as key | value
+                    result_lines.append(f"{col.ljust(max_col_width)} | {val_str}")
+
+            result_lines.append(f"\n{row_separator}")
+
+            # Add summary
+            if limit > 0 and len(rows) == limit:
+                result_lines.append(f"\n(Showing first {limit} rows. Set a higher limit to see more.)")
+            else:
+                result_lines.append(f"\n({len(rows)} rows total)")
+
+            return "\n".join(result_lines)
+
+        except oracledb.Error as e:
+            return f"Error querying rows: {str(e)}"
+
+    except Exception as e:
+        return f"Error executing query operation: {str(e)}"
+
+@mcp.tool()
+async def delete_rows(table_name: str, condition: str, ctx: Context) -> str:
+    """
+    Delete rows from a table that match the specified condition.
+    This tool allows you to remove data from a table based on a WHERE clause condition.
+    Use this tool carefully as deleted data cannot be recovered unless you have a backup.
+    Args:
+        table_name: The name of the table to delete rows from (case-insensitive)
+        condition: The WHERE clause condition that determines which rows to delete.
+                  For example: "id = 1" or "status = 'INACTIVE' AND created_date < SYSDATE - 30"
+                  The condition should be a valid SQL WHERE clause without the WHERE keyword.
+    Returns:
+        A message indicating the number of rows deleted or an error message if the operation failed.
+    """
+    db_context: DatabaseContext = ctx.request_context.lifespan_context
+
+    # First verify the table exists
+    table_info = await db_context.get_schema_info(table_name)
+    if not table_info:
+        return f"Table '{table_name}' not found in the schema."
+
+    try:
+        # Get a connection and execute the delete
+        conn = await db_context.db_connector.get_connection()
+        try:
+            cursor = conn.cursor()
+
+            # Construct and execute the delete query
+            schema = await db_context.db_connector._get_effective_schema(conn)
+            delete_query = f"DELETE FROM {schema}.{table_name} WHERE {condition}"
+
+            # Execute the delete
+            await db_context.db_connector._execute_cursor_no_fetch(cursor, delete_query)
+
+            # Get the number of rows affected
+            rows_deleted = cursor.rowcount
+
+            # Commit the transaction
+            await db_context.db_connector._commit(conn)
+
+            return f"Successfully deleted {rows_deleted} row(s) from {table_name}."
+
+        except oracledb.Error as e:
+            # Rollback on error
+            if USE_THICK_MODE:
+                conn.rollback()
+            else:
+                await conn.rollback()
+            return f"Error deleting rows: {str(e)}"
+        finally:
+            await db_context.db_connector._close_connection(conn)
+
+    except Exception as e:
+        return f"Error executing delete operation: {str(e)}"
+        
 if __name__ == "__main__":
     mcp.run()

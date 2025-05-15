@@ -811,6 +811,49 @@ class DatabaseConnector:
             
         return suggestions
 
+    async def get_rows_from_table(self, table_name: str, condition: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get rows from a table that match the specified condition"""
+        conn = await self.get_connection()
+        try:
+            cursor = conn.cursor()
+            schema = await self._get_effective_schema(conn)
+
+            # Get column names for this table to format results
+            columns_result = await self._execute_cursor(
+                cursor,
+                """
+                SELECT column_name
+                FROM all_tab_columns
+                WHERE owner = :owner AND table_name = :table_name
+                ORDER BY column_id
+                """,
+                owner=schema,
+                table_name=table_name.upper()
+            )
+
+            column_names = [col[0] for col in columns_result]
+
+            # Construct and execute the query
+            query = f"SELECT * FROM {schema}.{table_name} WHERE {condition}"
+            if limit > 0:
+                query += f" FETCH FIRST {limit} ROWS ONLY"
+
+            results = await self._execute_cursor(cursor, query)
+
+            # Convert to list of dictionaries with column names
+            formatted_results = []
+            for row in results:
+                row_dict = {}
+                for i, col_name in enumerate(column_names):
+                    # Handle None values and format data appropriately
+                    if i < len(row):
+                        row_dict[col_name] = row[i]
+                formatted_results.append(row_dict)
+
+            return formatted_results
+        finally:
+            await self._close_connection(conn)
+            
     async def _close_connection(self, conn):
         """Helper method to close connection based on mode"""
         try:

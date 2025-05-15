@@ -308,6 +308,25 @@ Example:
 What tables are related to the ORDERS table?
 ```
 
+#### `delete_rows`
+Delete rows from a table that match the specified condition.
+Example:
+```
+Can you delete all inactive customers from the CUSTOMERS table?
+```
+#### `update_rows`
+Update rows in a table that match the specified condition.
+Example:
+```
+Please update the status to 'COMPLETED' for all orders older than 30 days.
+```
+#### `get_rows`
+Get rows from a table that match the specified condition. Results are returned as formatted rows with column names and values.
+Example:
+```
+Show me the first 5 active customers from the CUSTOMERS table.
+```
+
 ## Architecture
 
 This MCP server employs a three-layer architecture optimized for large-scale Oracle databases:
