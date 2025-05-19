@@ -9,6 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from db_context import DatabaseContext
+from db_context.schema.formatter import format_select_results
 
 # Load environment variables from .env file
 load_dotenv()
@@ -606,6 +607,60 @@ async def get_related_tables(table_name: str, ctx: Context) -> str:
         
     except Exception as e:
         return f"Error getting related tables: {str(e)}"
+
+@mcp.tool()
+async def execute_select_query(query: str, ctx: Context) -> str:
+    """
+    Execute a SELECT SQL query and return the results as a formatted table. Only queries starting with SELECT are allowed.
+    Args:
+        query: The SQL SELECT query to execute. Must start with SELECT (case-insensitive).
+    Returns:
+        A formatted string table of the query results, or an error message if the query is invalid or fails.
+    """
+    db_context: DatabaseContext = ctx.request_context.lifespan_context
+    if not query.strip().lower().startswith("select"):
+        return "Error: Only SELECT queries are allowed."
+    try:
+        rows = await db_context.execute_select_query(query)
+        return format_select_results(rows)
+    except Exception as e:
+        return f"Error executing query: {str(e)}"
+
+@mcp.tool()
+async def execute_update_query(query: str, ctx: Context) -> str:
+    """
+    Execute an UPDATE SQL query and return the number of affected rows. Only queries starting with UPDATE are allowed.
+    Args:
+        query: The SQL UPDATE query to execute. Must start with UPDATE (case-insensitive).
+    Returns:
+        A string indicating the number of affected rows, or an error message if the query is invalid or fails.
+    """
+    db_context: DatabaseContext = ctx.request_context.lifespan_context
+    if not query.strip().lower().startswith("update"):
+        return "Error: Only UPDATE queries are allowed."
+    try:
+        count = await db_context.execute_update_query(query)
+        return f"Rows affected: {count}"
+    except Exception as e:
+        return f"Error executing update: {str(e)}"
+
+@mcp.tool()
+async def execute_delete_query(query: str, ctx: Context) -> str:
+    """
+    Execute a DELETE SQL query and return the number of affected rows. Only queries starting with DELETE are allowed.
+    Args:
+        query: The SQL DELETE query to execute. Must start with DELETE (case-insensitive).
+    Returns:
+        A string indicating the number of affected rows, or an error message if the query is invalid or fails.
+    """
+    db_context: DatabaseContext = ctx.request_context.lifespan_context
+    if not query.strip().lower().startswith("delete"):
+        return "Error: Only DELETE queries are allowed."
+    try:
+        count = await db_context.execute_delete_query(query)
+        return f"Rows affected: {count}"
+    except Exception as e:
+        return f"Error executing delete: {str(e)}"
 
 if __name__ == "__main__":
     mcp.run()

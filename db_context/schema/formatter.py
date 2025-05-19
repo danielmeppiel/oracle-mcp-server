@@ -360,3 +360,17 @@ def _format_relationship_groups(groups: List[Dict[str, Any]], result: List[str])
             result.append(f"    - {group['pattern']}:")
             for pattern in sorted(group['column_patterns']):
                 result.append(f"      {pattern}")
+
+def format_select_results(rows: list) -> str:
+    """Format SELECT query results (list of dicts) as a readable table string."""
+    if not rows:
+        return "No results."
+    columns = list(rows[0].keys())
+    # Calculate max width for each column
+    col_widths = {col: max(len(str(col)), max(len(str(row.get(col, ''))) for row in rows)) for col in columns}
+    # Header
+    header = " | ".join(col.ljust(col_widths[col]) for col in columns)
+    sep = "-+-".join("-" * col_widths[col] for col in columns)
+    # Rows
+    row_lines = [" | ".join(str(row.get(col, '')).ljust(col_widths[col]) for col in columns) for row in rows]
+    return f"{header}\n{sep}\n" + "\n".join(row_lines)

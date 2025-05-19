@@ -308,6 +308,27 @@ Example:
 What tables are related to the ORDERS table?
 ```
 
+#### `execute_select_query`
+Execute a SELECT SQL query and return the results as a formatted table. Only queries starting with SELECT are allowed.
+Example:
+```
+Run: SELECT * FROM EMPLOYEES WHERE DEPARTMENT_ID = 10;
+```
+
+#### `execute_update_query`
+Execute an UPDATE SQL query and return the number of affected rows. Only queries starting with UPDATE are allowed.
+Example:
+```
+Update the salary for all employees in department 10: UPDATE EMPLOYEES SET SALARY = SALARY * 1.1 WHERE DEPARTMENT_ID = 10;
+```
+
+#### `execute_delete_query`
+Execute a DELETE SQL query and return the number of affected rows. Only queries starting with DELETE are allowed.
+Example:
+```
+Delete all employees in department 10: DELETE FROM EMPLOYEES WHERE DEPARTMENT_ID = 10;
+```
+
 ## Architecture
 
 This MCP server employs a three-layer architecture optimized for large-scale Oracle databases:

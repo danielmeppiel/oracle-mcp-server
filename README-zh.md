@@ -308,6 +308,27 @@ ORDERS 表定义了哪些约束？
 ORDERS 表与哪些表有关联？
 ```
 
+#### `execute_select_query`
+执行 SELECT SQL 查询并返回格式化的结果表。仅允许以 SELECT 开头的查询。
+示例：
+```
+运行：SELECT * FROM EMPLOYEES WHERE DEPARTMENT_ID = 10;
+```
+
+#### `execute_update_query`
+执行 UPDATE SQL 查询并返回受影响的行数。仅允许以 UPDATE 开头的查询。
+示例：
+```
+将部门 10 的所有员工工资上调 10%：UPDATE EMPLOYEES SET SALARY = SALARY * 1.1 WHERE DEPARTMENT_ID = 10;
+```
+
+#### `execute_delete_query`
+执行 DELETE SQL 查询并返回受影响的行数。仅允许以 DELETE 开头的查询。
+示例：
+```
+删除部门 10 的所有员工：DELETE FROM EMPLOYEES WHERE DEPARTMENT_ID = 10;
+```
+
 ## 架构
 
 本 MCP 服务器采用三层架构，针对大型 Oracle 数据库进行了优化：

@@ -811,6 +811,46 @@ class DatabaseConnector:
             
         return suggestions
 
+    async def execute_select_query(self, query: str) -> list:
+        """Execute a SELECT query and return the results as a list of dicts. Only allows queries starting with SELECT."""
+        conn = await self.get_connection()
+        try:
+            cursor = conn.cursor()
+            await cursor.execute(query) if not self.thick_mode else cursor.execute(query)
+            columns = [col[0] for col in cursor.description]
+            if self.thick_mode:
+                rows = cursor.fetchall()
+            else:
+                rows = await cursor.fetchall()
+            result = [dict(zip(columns, row)) for row in rows]
+            return result
+        finally:
+            await self._close_connection(conn)
+
+    async def execute_update_query(self, query: str) -> int:
+        """Execute an UPDATE query and return the number of affected rows. Only allows queries starting with UPDATE."""
+        conn = await self.get_connection()
+        try:
+            cursor = conn.cursor()
+            await cursor.execute(query) if not self.thick_mode else cursor.execute(query)
+            rowcount = cursor.rowcount
+            await self._commit(conn)
+            return rowcount
+        finally:
+            await self._close_connection(conn)
+
+    async def execute_delete_query(self, query: str) -> int:
+        """Execute a DELETE query and return the number of affected rows. Only allows queries starting with DELETE."""
+        conn = await self.get_connection()
+        try:
+            cursor = conn.cursor()
+            await cursor.execute(query) if not self.thick_mode else cursor.execute(query)
+            rowcount = cursor.rowcount
+            await self._commit(conn)
+            return rowcount
+        finally:
+            await self._close_connection(conn)
+
     async def _close_connection(self, conn):
         """Helper method to close connection based on mode"""
         try:

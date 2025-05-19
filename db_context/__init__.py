@@ -136,3 +136,15 @@ class DatabaseContext:
     async def explain_query_plan(self, query: str) -> Dict[str, Any]:
         """Get execution plan for an SQL query with optimization suggestions"""
         return await self.db_connector.explain_query_plan(query)
+
+    async def execute_select_query(self, query: str) -> list:
+        """Execute a SELECT query and return the results as a list of dicts."""
+        return await self.db_connector.execute_select_query(query)
+
+    async def execute_update_query(self, query: str) -> int:
+        """Execute an UPDATE query and return the number of affected rows."""
+        return await self.db_connector.execute_update_query(query)
+
+    async def execute_delete_query(self, query: str) -> int:
+        """Execute a DELETE query and return the number of affected rows."""
+        return await self.db_connector.execute_delete_query(query)
