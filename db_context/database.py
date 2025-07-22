@@ -1,5 +1,6 @@
 import sys
 import oracledb
+import re
 import time
 import asyncio
 from typing import Dict, List, Set, Optional, Any
@@ -7,11 +8,21 @@ from pathlib import Path
 from .models import SchemaManager
 
 class DatabaseConnector:
-    def __init__(self, connection_string: str, target_schema: Optional[str] = None, use_thick_mode: bool = False, lib_dir: Optional[str] = None):
+    def __init__(self, connection_string: str, target_schema: Optional[str] = None, use_thick_mode: bool = False, lib_dir: Optional[str] = None, read_only: bool = True):
+        """Create a new connector.
+
+        Args:
+            connection_string: Oracle connection string
+            target_schema: Optional schema override
+            use_thick_mode: Whether to use thick mode for Oracle client
+            lib_dir: Optional Oracle client library directory
+            read_only: When True (default) all write operations will be blocked.
+        """
         self.connection_string = connection_string
         self.schema_manager: Optional[SchemaManager] = None  # Will be set by DatabaseContext
         self.target_schema: Optional[str] = target_schema
         self.thick_mode = use_thick_mode
+        self.read_only = read_only
         self._pool = None
         self._pool_lock = asyncio.Lock()
         
@@ -103,18 +114,41 @@ class DatabaseConnector:
             await cursor.execute(sql, **params)  # Async execution
             return await cursor.fetchall()
 
+    def _assert_query_executable(self, sql: str) -> None:
+        """Check if a query can be executed based on read-only mode and query type."""
+        if self.read_only and not self._is_select_query(sql):
+            raise PermissionError("Read-only mode: only SELECT statements are permitted.")
+
+    def _assert_write_allowed(self) -> None:
+        """Raise if the connector is in read-only mode."""
+        if self.read_only:
+            raise PermissionError("Read-only mode: write operations are disabled")
+
     async def _execute_cursor_no_fetch(self, cursor, sql: str, **params):
-        """Helper method for cursor operations that don't need fetching (e.g. DELETE, UPDATE)"""
+        """Helper method for statements that modify data (e.g. DELETE, UPDATE)."""
+        self._assert_query_executable(sql)
         if self.thick_mode:
             cursor.execute(sql, **params)
         else:
             await cursor.execute(sql, **params)
+    
+    async def _execute_cursor_with_fetch(self, cursor, sql: str, max_rows: int = 100, **params):
+        """Helper method for SELECT queries that need to fetch results."""
+        self._assert_query_executable(sql)
+        if self.thick_mode:
+            cursor.execute(sql, **params)
+            rows = cursor.fetchmany(max_rows)
+        else:
+            await cursor.execute(sql, **params)
+            rows = await cursor.fetchmany(max_rows)
+        return list(rows)
 
     async def _commit(self, conn):
         """Commit the current transaction"""
+        self._assert_write_allowed()
         if self.thick_mode:
             conn.commit()
-        else:         
+        else:
             await conn.commit()
 
 
@@ -686,13 +720,13 @@ class DatabaseConnector:
             await self._close_connection(conn)
             
     async def search_columns_in_database(self, table_names: List[str], search_term: str) -> Dict[str, List[Dict[str, Any]]]:
-        """Search for columns in specified tables"""
+        """Search for columns with a given pattern within a list of tables"""
         conn = await self.get_connection()
         try:
             cursor = conn.cursor()
             schema = await self._get_effective_schema(conn)
             result = {}
-            
+
             # Get columns for the specified tables that match the search term
             rows = await self._execute_cursor(cursor, """
                 SELECT /*+ RESULT_CACHE */ 
@@ -708,7 +742,7 @@ class DatabaseConnector:
             """, owner=schema, 
                 table_names=table_names,
                 search_term=search_term.upper())
-            
+
             for table_name, column_name, data_type, nullable in rows:
                 if table_name not in result:
                     result[table_name] = []
@@ -717,14 +751,68 @@ class DatabaseConnector:
                     "type": data_type,
                     "nullable": nullable == 'Y'
                 })
-            
+
             return result
-            
         finally:
             await self._close_connection(conn)
-    
+
+
+    async def execute_sql_query(self, sql: str, params: Optional[Dict[str, Any]] = None, max_rows: int = 100) -> Dict[str, Any]:
+        """
+        Executes a SQL query and returns the results.
+        
+        Args:
+            sql: The SQL query to execute.
+            params: A dictionary of bind parameters for the query.
+            max_rows: The maximum number of rows to return.
+            
+        Returns:
+            A dictionary containing the query results, including column definitions and rows.
+        """
+        conn = await self.get_connection()
+        try:
+            cursor = conn.cursor()
+            
+            # Check if this is a SELECT query (has description)
+            if self._is_select_query(sql):
+                rows = await self._execute_cursor_with_fetch(cursor, sql, max_rows, **(params or {}))
+                columns = [desc[0] for desc in cursor.description] if cursor.description else []
+                result_rows = [dict(zip(columns, row)) for row in rows]
+                
+                return {
+                    "columns": columns,
+                    "rows": result_rows,
+                    "row_count": len(result_rows)
+                }
+            else:
+                await self._execute_cursor_no_fetch(cursor, sql, **(params or {}))
+                row_count = cursor.rowcount
+                
+                # Only commit when the statement is an explicit DML or DDL operation
+                if self._is_write_operation(sql):
+                    await self._commit(conn)
+                return {
+                    "columns": [],
+                    "rows": [],
+                    "row_count": row_count,
+                    "message": f"Statement executed successfully. {row_count} row(s) affected."
+                }
+            
+        except oracledb.Error as e:
+            raise e
+        except PermissionError as e:
+            raise e
+        finally:
+            await self._close_connection(conn)
+
     async def explain_query_plan(self, query: str) -> Dict[str, Any]:
-        """Get execution plan for a SQL query"""
+        """
+        Get the execution plan for a given SQL query and provide optimization suggestions.
+        This tool uses 'EXPLAIN PLAN FOR' to analyze the query without executing it.
+        """
+        # Check if explain plan is allowed
+        self._assert_query_executable(query)
+
         conn = await self.get_connection()
         try:
             cursor = conn.cursor()
@@ -770,6 +858,12 @@ class DatabaseConnector:
                 "optimization_suggestions": ["Unable to generate execution plan due to error."],
                 "error": str(e)
             }
+        except PermissionError as e:
+            return {
+                "execution_plan": [],
+                "optimization_suggestions": [],
+                "error": str(e)
+            }
         finally:
             await self._close_connection(conn)
             
@@ -811,12 +905,48 @@ class DatabaseConnector:
             
         return suggestions
 
-    async def _close_connection(self, conn):
-        """Helper method to close connection based on mode"""
-        try:
-            if self.thick_mode:
-                conn.close()  # Synchronous close for thick mode
-            else:
-                await conn.close()  # Async close for thin mode
-        except Exception as e:
-            print(f"Error closing connection: {str(e)}", file=sys.stderr)
+    @staticmethod
+    def _is_select_query(sql: str) -> bool:
+        """Return True if the statement appears to be a *pure* read-only SELECT/CTE.
+
+        Heuristics used (cheap but reasonably safe for most cases):
+        1. Statement must start with SELECT or WITH.
+        2. No semicolon exists elsewhere (prevents stacked statements).
+        3. No DML/DDL keywords appear anywhere in the text (outside quotes is
+           not fully parsed but good enough as a guard-rail). For more robust
+           validation a full SQL parser should be used.
+        """
+        stripped = sql.lstrip()
+        upper_sql = stripped.upper()
+
+        if not (upper_sql.startswith("SELECT") or upper_sql.startswith("WITH")):
+            return False
+
+        # block attempts to chain multiple statements
+        if ";" in upper_sql:
+            return False
+
+        # simple keyword search for write operations
+        write_pattern = re.compile(r"\b(INSERT|UPDATE|DELETE|MERGE|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE)\b", re.IGNORECASE)
+        if write_pattern.search(upper_sql):
+            return False
+
+        return True
+
+    @staticmethod
+    def _is_write_operation(sql: str) -> bool:
+        """Return True if the SQL statement modifies data or structure."""
+        stripped = sql.lstrip().upper()
+        write_keywords = (
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "MERGE",
+            "CREATE",
+            "ALTER",
+            "DROP",
+            "TRUNCATE",
+            "GRANT",
+            "REVOKE",
+        )
+        return any(stripped.startswith(keyword) for keyword in write_keywords)
