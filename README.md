@@ -41,6 +41,7 @@ By intelligently caching and serving database schema information, this server al
 - **Relationship Mapping**: Understand foreign key relationships between tables
 - **Oracle Database Support**: Built specifically for Oracle databases
 - **MCP Integration**: Works seamlessly with GitHub Copilot in VSCode, Claude, ChatGPT, and other AI assistants that support MCP
+- **Read-Only Mode**: Default security mode that prevents write operations while allowing full read access
 
 ## Usage
 
@@ -104,7 +105,8 @@ In VSCode Insiders, go to your user or workspace `settings.json` file and add th
                   "TARGET_SCHEMA":"",
                   "CACHE_DIR":".cache",
                   "THICK_MODE":"",  // Optional: set to "1" to enable thick mode
-                  "ORACLE_CLIENT_LIB_DIR":"" // Optional: in case you use thick mode and you want to set a non-default directory for client libraries
+                  "ORACLE_CLIENT_LIB_DIR":"", // Optional: in case you use thick mode and you want to set a non-default directory for client libraries
+                  "READ_ONLY_MODE":"1"  // Optional: set to "0" to allow write operations (default: "1" for read-only)
                }
            }
        }
@@ -179,7 +181,8 @@ In VSCode Insiders, go to your user or workspace `settings.json` file and add th
                      "TARGET_SCHEMA":"",
                      "CACHE_DIR":".cache",
                      "THICK_MODE":"",  // Optional: set to "1" to enable thick mode
-                     "ORACLE_CLIENT_LIB_DIR":"" // Optional: in case you use thick mode and if you want to set a non-default directory for client libraries
+                     "ORACLE_CLIENT_LIB_DIR":"", // Optional: in case you use thick mode and if you want to set a non-default directory for client libraries
+                     "READ_ONLY_MODE":"1"  // Optional: set to "0" to allow write operations (default: "1" for read-only)
                   }
             }
          }
@@ -191,6 +194,7 @@ For both options:
 - Replace the `ORACLE_CONNECTION_STRING` with your actual database connection string
 - The `TARGET_SCHEMA` is optional, it will default to the user's schema
 - The `CACHE_DIR` is optional, defaulting to `.cache` within the MCP server root folder
+- The `READ_ONLY_MODE` defaults to "1" (read-only) for security. Set to "0" only when write operations are needed
 
 ### Starting the Server locally
 
@@ -308,6 +312,15 @@ Example:
 What tables are related to the ORDERS table?
 ```
 
+#### `run_sql_query`
+Execute a SQL query and return the results in a formatted table.
+Example:
+```
+Can you run this query for me? SELECT * FROM EMPLOYEES WHERE DEPARTMENT_ID = 10
+```
+
+**Note**: In read-only mode (default), only SELECT statements are permitted. Write operations (INSERT, UPDATE, DELETE) are blocked for security. When read-only mode is deactivated (`READ_ONLY_MODE="0"`), this tool can execute both read and write operations.
+
 ## Architecture
 
 This MCP server employs a three-layer architecture optimized for large-scale Oracle databases:
@@ -349,6 +362,15 @@ You can specify a custom location for the Oracle Client libraries using the `ORA
 - You need specific Oracle Client versions for compatibility with certain database features
 
 Note: When using Docker, you don't need to worry about installing Oracle Client libraries as they are included in the container (Oracle Instant Client v23.7). The container supports Oracle databases versions 19c up to 23ai in both linux/arm64 and linux/amd64 architectures.
+
+## Read-Only Mode
+
+The MCP server operates in read-only mode by default for increased security. This prevents any write operations (INSERT, UPDATE, DELETE, DDL) while allowing full read access to the database. It protects against unintended changes from AI-generated queries.
+
+### Configuration
+
+- **Default**: `READ_ONLY_MODE="1"` (read-only, secure)
+- **Write Access**: `READ_ONLY_MODE="0"` (allows write operations)
 
 ## System Requirements
 

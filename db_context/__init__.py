@@ -7,8 +7,8 @@ from .models import TableInfo
 
 
 class DatabaseContext:
-    def __init__(self, connection_string: str, cache_path: Path, target_schema: Optional[str] = None,  use_thick_mode: bool = False, lib_dir: Optional[str] = None):
-        self.db_connector = DatabaseConnector(connection_string, target_schema, use_thick_mode, lib_dir)
+    def __init__(self, connection_string: str, cache_path: Path, target_schema: Optional[str] = None,  use_thick_mode: bool = False, lib_dir: Optional[str] = None, read_only: bool = True):
+        self.db_connector = DatabaseConnector(connection_string, target_schema, use_thick_mode, lib_dir, read_only)
         self.schema_manager = SchemaManager(self.db_connector, cache_path)
         # Set the schema manager reference in the connector
         self.db_connector.set_schema_manager(self.schema_manager)
@@ -132,6 +132,10 @@ class DatabaseContext:
         self.schema_manager.update_cache('related_tables', cache_key, result)
         await self.schema_manager.save_cache()
         return result
+
+    async def run_sql_query(self, sql: str, params: Optional[Dict[str, Any]] = None, max_rows: int = 100) -> Dict[str, Any]:
+        """Runs a SQL query and returns the results."""
+        return await self.db_connector.execute_sql_query(sql, params, max_rows)
 
     async def explain_query_plan(self, query: str) -> Dict[str, Any]:
         """Get execution plan for an SQL query with optimization suggestions"""
