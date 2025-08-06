@@ -360,3 +360,52 @@ def _format_relationship_groups(groups: List[Dict[str, Any]], result: List[str])
             result.append(f"    - {group['pattern']}:")
             for pattern in sorted(group['column_patterns']):
                 result.append(f"      {pattern}")
+
+def format_sql_query_result(result: Dict[str, Any]) -> str:
+    """
+    Format SQL query results as a markdown table.
+    
+    Args:
+        result: Dictionary containing query results with 'columns' and 'rows' keys
+        
+    Returns:
+        Formatted markdown table string
+    """
+    if not result.get("rows"):
+        return "Query executed successfully, but returned no rows."
+
+    headers = [str(h) for h in result["columns"]]
+    rows = result["rows"]
+
+    # Determine the maximum width required for each column considering both header and cell values
+    col_widths: List[int] = []
+    for header in headers:
+        max_width = len(header)
+        for row in rows:
+            cell_len = len(str(row.get(header, "")))
+            if cell_len > max_width:
+                max_width = cell_len
+        col_widths.append(max_width)
+
+    def _pad(cell: str, width: int) -> str:
+        """Left-justify cell content (right-pad) to match the column width for aligned output."""
+        return cell.ljust(width)
+
+    formatted_result: List[str] = []
+
+    # Header row
+    header_row = "| " + " | ".join(_pad(h, col_widths[i]) for i, h in enumerate(headers)) + " |"
+    formatted_result.append(header_row)
+
+    # Separator row – must have at least 3 dashes per Markdown spec
+    separator_row = "| " + " | ".join("-" * max(3, col_widths[i]) for i in range(len(headers))) + " |"
+    formatted_result.append(separator_row)
+
+    # Data rows
+    for row in rows:
+        data_row = "| " + " | ".join(
+            _pad(str(row.get(h, "")), col_widths[i]) for i, h in enumerate(headers)
+        ) + " |"
+        formatted_result.append(data_row)
+
+    return "\n".join(formatted_result)
